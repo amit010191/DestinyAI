@@ -1,3 +1,4 @@
+/** Builds the natal chart: signs, houses, nakshatras, and dignity. */
 import {
   DEBILITATION,
   EXALTATION,

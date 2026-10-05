@@ -1,3 +1,4 @@
+/** Vimshottari mahadasha and antardasha timeline from the Moon's nakshatra. */
 import { DASHA_ORDER, DASHA_YEARS, NAKSHATRA_SPAN, type Planet } from "./constants";
 
 const MS_PER_YEAR = 365.2425 * 24 * 3600 * 1000;

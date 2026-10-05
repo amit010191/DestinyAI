@@ -1,3 +1,4 @@
+/** Local Ollama client. Host and model come from .env (OLLAMA_HOST, OLLAMA_MODEL). */
 const DEFAULT_HOST = "http://127.0.0.1:11434";
 const DEFAULT_MODEL = "llama3.2";
 
@@ -16,12 +17,16 @@ export class OllamaError extends Error {
   }
 }
 
+let readyUntil = 0;
+
 export async function assertOllamaReady(): Promise<void> {
+  if (Date.now() < readyUntil) return;
+
   const host = ollamaHost();
   const model = ollamaModel();
   let res: Response;
   try {
-    res = await fetch(`${host}/api/tags`);
+    res = await fetch(`${host}/api/tags`, { signal: AbortSignal.timeout(4000) });
   } catch {
     throw new OllamaError(
       `Cannot reach Ollama at ${host}. Start it with: ollama serve\nThen pull the model: ollama pull ${model}`,
@@ -38,6 +43,7 @@ export async function assertOllamaReady(): Promise<void> {
       `Ollama is running, but model "${model}" is not installed.\nInstalled: ${names.join(", ") || "(none)"}\nRun: ollama pull ${model}`,
     );
   }
+  readyUntil = Date.now() + 5 * 60 * 1000;
 }
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -45,26 +51,25 @@ type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 export async function ollamaChat(messages: ChatMessage[], onToken?: (chunk: string) => void): Promise<string> {
   const host = ollamaHost();
   const model = ollamaModel();
-  const stream = Boolean(onToken);
   const res = await fetch(`${host}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
       messages,
-      stream,
-      options: { temperature: 0.6, num_ctx: 4096, num_predict: 900 },
+      stream: true,
+      keep_alive: "60m",
+      options: {
+        temperature: 0.5,
+        num_ctx: 2048,
+        num_predict: 420,
+      },
     }),
   });
 
   if (!res.ok) {
     const body = await res.text();
     throw new OllamaError(`Ollama chat failed (${res.status}): ${body.slice(0, 400)}`);
-  }
-
-  if (!stream) {
-    const data = (await res.json()) as { message?: { content?: string } };
-    return (data.message?.content ?? "").trim();
   }
 
   if (!res.body) {
@@ -85,7 +90,7 @@ export async function ollamaChat(messages: ChatMessage[], onToken?: (chunk: stri
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      const json = JSON.parse(trimmed) as { message?: { content?: string }; error?: string; done?: boolean };
+      const json = JSON.parse(trimmed) as { message?: { content?: string }; error?: string };
       if (json.error) throw new OllamaError(json.error);
       const piece = json.message?.content ?? "";
       if (piece) {

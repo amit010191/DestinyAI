@@ -1,3 +1,4 @@
+/** Compact chart facts, Ollama prompt, and Past/Present/Future section parser. */
 import { HOUSE_THEMES, SIGNS, type Planet } from "./constants";
 import { houseOf, lordOfHouse, planetInHouse, type NatalChart } from "./chart";
 import { dashaAt, fmtDate } from "./dasha";
@@ -43,6 +44,7 @@ export function transitLines(chart: NatalChart, now: Date): string[] {
 export type ChartContext = {
   person: string;
   facts: string;
+  llmFacts: string;
   dasha: {
     currentMaha: string;
     currentAntar: string;
@@ -58,57 +60,57 @@ export function buildChartContext(chart: NatalChart, name: string | undefined, n
   const dasha = dashaAt(new Date(chart.utcBirth), moon.longitude, now);
   const transits = transitLines(chart, now);
   const planetBlock = chart.planets
-    .map(
-      (p) =>
-        `${p.planet}: ${p.sign} ${p.degreeInSign.toFixed(2)}°, house ${p.house}, nakshatra ${p.nakshatra} pada ${p.pada}, dignity ${p.dignity}`,
-    )
-    .join("\n");
+    .map((p) => `${p.planet} ${p.sign} h${p.house} ${p.nakshatra}p${p.pada}`)
+    .join(" | ");
 
-  const houseLords = [1, 4, 5, 7, 9, 10, 11]
+  const houseLords = [1, 4, 7, 9, 10]
     .map((h) => {
       const lord = lordOfHouse(chart, h);
       const pos = planetInHouse(chart, lord);
-      return `House ${h} lord ${lord} is in house ${pos.house} in ${pos.sign}`;
+      return `H${h}:${lord}@H${pos.house} ${pos.sign}`;
     })
+    .join("; ");
+
+  const dashaBlock = [
+    `MD ${dasha.currentMaha.lord} ${periodSpan(dasha.currentMaha.start, dasha.currentMaha.end)}`,
+    `AD ${dasha.currentAntar.lord} ${periodSpan(dasha.currentAntar.start, dasha.currentAntar.end)}`,
+    dasha.previousMaha
+      ? `Prev MD ${dasha.previousMaha.lord} ${periodSpan(dasha.previousMaha.start, dasha.previousMaha.end)}`
+      : "First MD of life",
+    dasha.nextAntar ? `Next AD ${dasha.nextAntar.lord} ${fmtDate(dasha.nextAntar.start)}` : "",
+    dasha.nextMaha ? `Next MD ${dasha.nextMaha.lord} ${fmtDate(dasha.nextMaha.start)}-${fmtDate(dasha.nextMaha.end)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  const transitShort = transits.join("; ");
+
+  const llmFacts = [
+    `${person} | ${chart.lagna} lagna | Sun ${chart.sunSign} | Moon ${chart.moonSign} ${chart.birthNakshatra} p${chart.birthPada}`,
+    chart.timeAssumed ? "Time unknown (noon assumed)" : "",
+    planetBlock,
+    houseLords,
+    dashaBlock,
+    transitShort,
+  ]
+    .filter(Boolean)
     .join("\n");
 
   const facts = [
     `Name: ${person}`,
-    `Birth UTC: ${chart.utcBirth}`,
     `Place: ${chart.placeName}`,
-    `Lat/Lon: ${chart.latitude.toFixed(4)}, ${chart.longitude.toFixed(4)}`,
-    `Timezone: ${chart.timezone}`,
-    `System: ${chart.ayanamsaNote}`,
-    chart.timeAssumed ? "Birth time unknown; noon local time was assumed (lagna approximate)." : "Birth time was provided.",
     `Lagna: ${chart.lagna} ${chart.lagnaDegree.toFixed(2)}°`,
-    `Sidereal Sun: ${chart.sunSign}`,
-    `Sidereal Moon: ${chart.moonSign}`,
-    `Birth star: ${chart.birthNakshatra} pada ${chart.birthPada} (nakshatra lord ${moon.nakshatraLord})`,
-    ``,
-    `PLANETS`,
-    planetBlock,
-    ``,
-    `HOUSE LORDS`,
-    houseLords,
-    ``,
-    `VIMSHOTTARI DASHA`,
-    `Current mahadasha: ${dasha.currentMaha.lord} (${periodSpan(dasha.currentMaha.start, dasha.currentMaha.end)})`,
-    `Current antardasha: ${dasha.currentAntar.lord} (${periodSpan(dasha.currentAntar.start, dasha.currentAntar.end)})`,
-    dasha.previousMaha
-      ? `Previous mahadasha: ${dasha.previousMaha.lord} (${periodSpan(dasha.previousMaha.start, dasha.previousMaha.end)})`
-      : "Still in the first mahadasha of life.",
-    dasha.nextAntar ? `Next antardasha: ${dasha.nextAntar.lord} from ${fmtDate(dasha.nextAntar.start)}` : "",
-    dasha.nextMaha ? `Next mahadasha: ${dasha.nextMaha.lord} from ${fmtDate(dasha.nextMaha.start)} to ${fmtDate(dasha.nextMaha.end)}` : "",
-    ``,
-    `CURRENT TRANSITS`,
-    ...transits,
-  ]
-    .filter((line) => line !== "")
-    .join("\n");
+    `Sidereal Sun: ${chart.sunSign} | Moon: ${chart.moonSign} | Star: ${chart.birthNakshatra} pada ${chart.birthPada}`,
+    `PLANETS: ${planetBlock}`,
+    `HOUSE LORDS: ${houseLords}`,
+    `DASHA: ${dashaBlock}`,
+    `TRANSITS: ${transitShort}`,
+  ].join("\n");
 
   return {
     person,
     facts,
+    llmFacts,
     transits,
     dasha: {
       currentMaha: `${dasha.currentMaha.lord} (${periodSpan(dasha.currentMaha.start, dasha.currentMaha.end)})`,
@@ -121,28 +123,19 @@ export function buildChartContext(chart: NatalChart, name: string | undefined, n
   };
 }
 
-export const SYSTEM_PROMPT = `You are DestinyAI, a careful Vedic astrology interpreter.
-You receive computed natal facts (Lahiri sidereal planets, whole-sign houses, nakshatras, Vimshottari dashas, current transits).
-Write a reading that is specific to THESE facts. Do not invent extra planets, dates, or dashas.
-Do not give medical, legal, or financial guarantees. Speak as guidance for reflection.
-Write in clear English prose (not bullet dumps except the improvement list).
-Keep the whole reading under 700 words.
-Use this exact section layout and nothing else:
-
+export const SYSTEM_PROMPT = `Vedic natal interpreter. Use ONLY the given facts. Copy dasha dates exactly. No medical/legal/financial promises. Max 350 words.
+Output exactly:
 --- PAST ---
-Two short paragraphs on early life and the previous mahadasha, using house lords 4 and 9 and the Moon/nakshatra.
-
+One short paragraph (previous MD, Moon/star, H4/H9).
 --- PRESENT ---
-Two short paragraphs on the current mahadasha and antardasha, career (10th), partnership (7th), and the listed transits. Copy dasha dates exactly from the facts.
-
+One short paragraph (current MD/AD, H10/H7, transits).
 --- FUTURE ---
-Two short paragraphs on remaining dasha time, next antardasha, next mahadasha, and how the native can steer the coming years. Copy dates exactly from the facts.
-
+One short paragraph (remaining MD, next AD/MD, how to steer).
 --- POINTS FOR IMPROVEMENT ---
-5 to 8 numbered practical points the native can use (habits, skills, relationships, work). Tie each point to a planet or house in the chart.`;
+5 numbered practical points tied to planets/houses.`;
 
 export function userPrompt(facts: string): string {
-  return `Create the natal prediction from these computed facts:\n\n${facts}`;
+  return `Write the reading from these facts:\n${facts}`;
 }
 
 export function parseLlmSections(text: string): {

@@ -1,3 +1,4 @@
+/** App shell and page metadata. */
 import type { Metadata } from "next";
 import "./globals.css";
 

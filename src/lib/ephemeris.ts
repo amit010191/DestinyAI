@@ -1,3 +1,4 @@
+/** Sidereal planet longitudes (Lahiri) and tropical/sidereal ascendant. */
 import {
   Body,
   Ecliptic,
@@ -23,8 +24,7 @@ export function norm360(deg: number): number {
   return x < 0 ? x + 360 : x;
 }
 
-function tropicalLongitude(body: Body, date: Date): number {
-  const time = MakeTime(date as FlexibleDateTime);
+function tropicalLongitude(body: Body, time: ReturnType<typeof MakeTime>): number {
   const vec = GeoVector(body, time, true);
   return norm360(Ecliptic(vec).elon);
 }
@@ -51,15 +51,13 @@ const BODY_MAP: Partial<Record<Planet, Body>> = {
 };
 
 export function tropicalLongitudes(date: Date): Record<Planet, number> {
+  const time = MakeTime(date as FlexibleDateTime);
+  const rahu = meanNorthNode(date);
   const result = {} as Record<Planet, number>;
   for (const planet of PLANETS) {
-    if (planet === "Rahu") {
-      result.Rahu = meanNorthNode(date);
-    } else if (planet === "Ketu") {
-      result.Ketu = norm360(meanNorthNode(date) + 180);
-    } else {
-      result[planet] = tropicalLongitude(BODY_MAP[planet] as Body, date);
-    }
+    if (planet === "Rahu") result.Rahu = rahu;
+    else if (planet === "Ketu") result.Ketu = norm360(rahu + 180);
+    else result[planet] = tropicalLongitude(BODY_MAP[planet] as Body, time);
   }
   return result;
 }

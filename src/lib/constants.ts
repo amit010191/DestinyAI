@@ -1,3 +1,4 @@
+/** Shared Vedic tables: signs, planets, nakshatras, dasha years, house themes. */
 export const SIGNS = [
   "Aries",
   "Taurus",

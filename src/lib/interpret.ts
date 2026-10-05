@@ -1,3 +1,4 @@
+/** Template reading (not the live path). The live reading is written by Ollama via pipeline.ts. */
 import { HOUSE_THEMES, SIGNS, type Planet } from "./constants";
 import { lordOfHouse, planetInHouse, type NatalChart, type PlanetPlacement } from "./chart";
 import { dashaAt, fmtDate, type DashaTimeline } from "./dasha";

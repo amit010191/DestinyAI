@@ -1,3 +1,4 @@
+/** Orchestrates validation, geocoding, natal math, and the Ollama reading. */
 import { buildNatalChart, type NatalChart } from "./chart";
 import { assembleFullText, buildChartContext, parseLlmSections, SYSTEM_PROMPT, userPrompt } from "./context";
 import { geocodePlace, zonedCivilToUtc } from "./geo";
@@ -46,21 +47,21 @@ export async function computeNatalChart(input: BirthInput): Promise<NatalChart> 
 export async function generatePrediction(
   input: BirthInput,
   hooks?: {
-    onFacts?: (facts: string) => void;
+    onReady?: (payload: Pick<PredictionPayload, "chart" | "dasha" | "transits"> & { facts: string }) => void;
     onToken?: (chunk: string) => void;
   },
 ): Promise<PredictionPayload> {
   const err = validateBirthInput(input);
   if (err) throw new Error(err);
 
-  await assertOllamaReady();
-  const chart = await computeNatalChart(input);
+  const [, chart] = await Promise.all([assertOllamaReady(), computeNatalChart(input)]);
   const ctx = buildChartContext(chart, input.name);
-  hooks?.onFacts?.(ctx.facts);
+  hooks?.onReady?.({ chart, dasha: ctx.dasha, transits: ctx.transits, facts: ctx.facts });
+
   const llm = await ollamaChat(
     [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt(ctx.facts) },
+      { role: "user", content: userPrompt(ctx.llmFacts) },
     ],
     hooks?.onToken,
   );

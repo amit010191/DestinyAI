@@ -1,5 +1,7 @@
 "use client";
 
+/** Birth form. Shows the chart immediately, then streams the Ollama reading. */
+
 import { useMemo, useState } from "react";
 
 type PlanetRow = {
@@ -48,6 +50,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<Report | null>(null);
+  const [draft, setDraft] = useState("");
 
   const canSubmit = useMemo(() => {
     return Boolean(date && place && (unknownTime || time) && !loading);
@@ -57,15 +60,63 @@ export default function HomePage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setReport(null);
+    setDraft("");
     try {
       const res = await fetch("/api/predict", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, date, time, place, unknownTime }),
+        body: JSON.stringify({ name, date, time, place, unknownTime, stream: true }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not generate a reading.");
-      setReport(data as Report);
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Could not generate a reading.");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let live = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const msg = JSON.parse(line) as {
+            type: string;
+            error?: string;
+            report?: Report;
+            chart?: Report["chart"];
+            dasha?: Report["dasha"];
+            transits?: string[];
+            text?: string;
+          };
+          if (msg.type === "error") throw new Error(msg.error || "Could not generate a reading.");
+          if (msg.type === "meta" && msg.chart && msg.dasha) {
+            setReport({
+              past: "",
+              present: "",
+              future: "",
+              improvements: [],
+              fullText: "",
+              dasha: msg.dasha,
+              transits: msg.transits ?? [],
+              chart: msg.chart,
+            });
+          }
+          if (msg.type === "token" && msg.text) {
+            live += msg.text;
+            setDraft(live);
+          }
+          if (msg.type === "done" && msg.report) {
+            setReport(msg.report);
+            setDraft("");
+          }
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate a reading.");
     } finally {
@@ -149,7 +200,7 @@ export default function HomePage() {
               I don&apos;t know the birth time (noon will be used; ascendant becomes approximate)
             </label>
             <button className="full" type="submit" disabled={!canSubmit}>
-              {loading ? "Ollama is writing the reading…" : "Generate prediction"}
+              {loading ? "Writing as the sky is read…" : "Generate prediction"}
             </button>
           </form>
           {error ? <p className="error">{error}</p> : null}
@@ -203,25 +254,33 @@ export default function HomePage() {
             </div>
 
             <h2>Past</h2>
-            <p>{report.past}</p>
-            <h2>Present</h2>
-            <p>{report.present}</p>
-            <h2>Future</h2>
-            <p>{report.future}</p>
-            <h2>Points for improvement</h2>
-            <ol className="improvements">
-              {report.improvements.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ol>
+            <p>{report.past || (draft && !report.past ? draft : "")}</p>
+            {draft && !report.past ? null : (
+              <>
+                <h2>Present</h2>
+                <p>{report.present}</p>
+                <h2>Future</h2>
+                <p>{report.future}</p>
+                <h2>Points for improvement</h2>
+                <ol className="improvements">
+                  {report.improvements.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ol>
+              </>
+            )}
 
             <div className="actions">
-              <button type="button" onClick={copyText}>
-                Copy full text
-              </button>
-              <button type="button" className="ghost" onClick={downloadText}>
-                Download .txt
-              </button>
+              {report.fullText ? (
+                <>
+                  <button type="button" onClick={copyText}>
+                    Copy full text
+                  </button>
+                  <button type="button" className="ghost" onClick={downloadText}>
+                    Download .txt
+                  </button>
+                </>
+              ) : null}
             </div>
             <p className="foot">
               Interpretive guidance from planetary geometry and traditional timing, not a substitute

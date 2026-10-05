@@ -1,3 +1,4 @@
+/** Place lookup (Nominatim, cached) and local birth time → UTC. */
 import { find } from "geo-tz";
 
 export type GeoPlace = {
@@ -13,7 +14,13 @@ type NominatimHit = {
   lon: string;
 };
 
+const geoCache = new Map<string, GeoPlace>();
+
 export async function geocodePlace(place: string): Promise<GeoPlace> {
+  const key = place.trim().toLowerCase();
+  const cached = geoCache.get(key);
+  if (cached) return cached;
+
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("q", place);
   url.searchParams.set("format", "json");
@@ -24,6 +31,7 @@ export async function geocodePlace(place: string): Promise<GeoPlace> {
       "User-Agent": "DestinyAI/1.0 (natal chart predictions)",
       Accept: "application/json",
     },
+    signal: AbortSignal.timeout(8000),
   });
 
   if (!res.ok) {
@@ -40,12 +48,14 @@ export async function geocodePlace(place: string): Promise<GeoPlace> {
   const zones = find(latitude, longitude);
   const timezone = zones[0] ?? "UTC";
 
-  return {
+  const result = {
     displayName: hits[0].display_name,
     latitude,
     longitude,
     timezone,
   };
+  geoCache.set(key, result);
+  return result;
 }
 
 export function zonedCivilToUtc(

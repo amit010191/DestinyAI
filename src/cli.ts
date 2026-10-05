@@ -1,3 +1,4 @@
+/** Console agent: prompt for birth details, print the chart, stream the Ollama reading. */
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { generatePrediction, type BirthInput } from "./lib/pipeline";
@@ -97,7 +98,7 @@ Environment:
   console.log("Computing natal chart, then asking the model...\n");
 
   await generatePrediction(birth, {
-    onFacts: (facts) => {
+    onReady: ({ facts }) => {
       console.log(facts);
       console.log("\n----- Ollama reading -----\n");
     },
